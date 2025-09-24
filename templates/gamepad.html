@@ -1,0 +1,326 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>Virtual Gamepad</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        /* Base styles for the page and components */
+        :root { --button-size: 60px; --joystick-size: 150px; }
+        body {
+            touch-action: manipulation;
+            background-color: #000;
+            color: white;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+            margin: 0;
+            overflow: hidden; /* Prevent scrollbars */
+        }
+        .controller-frame {
+            background-color: #1a1a1a;
+            border-radius: 20px;
+            box-shadow: 0 10px 25px rgba(0,0,0,0.4);
+            display: grid;
+            align-items: center;
+            justify-items: center;
+        }
+        .button { transition: all 0.08s ease-in-out; border: 2px solid transparent; }
+        .button:active, .button.active { transform: scale(0.95); filter: brightness(0.8); border-color: #FFD700; }
+        .joystick-base { width: var(--joystick-size); height: var(--joystick-size); background: #1e3b3b; border-radius: 50%; border: 5px solid #cccccc; position: relative; }
+        .joystick-thumb { width: calc(var(--joystick-size) / 2); height: calc(var(--joystick-size) / 2); background-color: #00ffff; border-radius: 50%; position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); }
+        .d-pad-container, .abxy-group { position: relative; width: var(--joystick-size); height: var(--joystick-size); }
+        .d-pad-btn { position: absolute; width: var(--button-size); height: var(--button-size); background-color: #1e3b3b; border-radius: 50%; border: 3px solid #cccccc; display: flex; align-items: center; justify-content: center; }
+        .d-pad-btn svg { fill: #00ffff; width: 50%; height: 50%; }
+        #dpad-up { top: 0; left: 50%; transform: translateX(-50%); } #dpad-down { bottom: 0; left: 50%; transform: translateX(-50%); } #dpad-left { left: 0; top: 50%; transform: translateY(-50%); } #dpad-right { right: 0; top: 50%; transform: translateY(-50%); }
+        .abxy-button { position: absolute; width: var(--button-size); height: var(--button-size); border-radius: 50%; font-size: 24px; font-weight: bold; color: white; display: flex; align-items: center; justify-content: center; border: 3px solid #cccccc; }
+        #a { background-color: #008000; bottom: 0; left: 50%; transform: translateX(-50%); } #b { background-color: #FF0000; right: 0; top: 50%; transform: translateY(-50%); } #x { background-color: #0000FF; left: 0; top: 50%; transform: translateY(-50%); } #y { background-color: #FFFF00; color: black; top: 0; left: 50%; transform: translateX(-50%); }
+        .center-buttons-area { display: flex; gap: 20px; }
+        .shoulders-area { 
+            display: flex; 
+            justify-content: center;
+            gap: 40px;
+            padding: 10px 0;
+        }
+        .shoulder-group {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 10px;
+        }
+        .shoulder-button, .shoulder-trigger { 
+            width: 120px; 
+            height: 45px; 
+            background-color: #00ffff; 
+            border-radius: 20px; 
+            font-weight: bold; 
+            color: #1a1a1a; 
+            border: 2px solid #888888; 
+            display: flex; 
+            align-items: center; 
+            justify-content: center; 
+            margin: 0 5px; 
+        }
+        .center-button { width: 55px; height: 55px; background: #1e3b3b; border-radius: 50%; border: 2px solid #cccccc; display: flex; align-items: center; justify-content: center; }
+        .center-button svg { fill: #00ffff; width: 60%; height: 60%; }
+        #start-overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background-color: rgba(0, 0, 0, 0.9); display: flex; flex-direction: column; align-items: center; justify-content: center; z-index: 100; color: white; font-family: sans-serif; text-align: center; }
+        #start-button { font-size: 24px; padding: 15px 30px; border-radius: 15px; border: 2px solid #00ffff; background-color: #1e3b3b; color: #00ffff; cursor: pointer; }
+
+        /* ================================================================= */
+        /* ============== LANDSCAPE LAYOUT (Your Desired Design) ============== */
+        /* ================================================================= */
+        @media (orientation: landscape) {
+            .controller-frame {
+                width: 95vw; /* Use 95% of the viewport width */
+                height: 90vh; /* Use 90% of the viewport height */
+                padding: 20px;
+                gap: 10px;
+                grid-template-columns: 1fr 1.5fr 1fr;
+                grid-template-rows: 1fr 1fr;
+                grid-template-areas:
+                    "l-stick center-top    abxy"
+                    "d-pad   center-bottom r-stick";
+            }
+            .left-joystick { grid-area: l-stick; } .d-pad-container { grid-area: d-pad; } .shoulders-area { grid-area: center-top; } .center-buttons-area { grid-area: center-bottom; } .abxy-group { grid-area: abxy; } .right-joystick { grid-area: r-stick; }
+        }
+
+        /* ================================================================ */
+        /* ============== PORTRAIT LAYOUT (For Vertical Phones) ============== */
+        /* ================================================================ */
+        @media (orientation: portrait) {
+            .controller-frame {
+                width: 95vw;
+                height: 90vh;
+                padding: 15px;
+                gap: 10px;
+                grid-template-columns: 1fr 1fr;
+                grid-template-rows: auto 1fr auto 1fr;
+                grid-template-areas:
+                    "shoulders shoulders"
+                    "d-pad     abxy"
+                    "center    center"
+                    "l-stick   r-stick";
+            }
+             /* Re-assign areas for portrait mode */
+            .left-joystick { grid-area: l-stick; } .right-joystick { grid-area: r-stick; } .d-pad-container { grid-area: d-pad; } .abxy-group { grid-area: abxy; } .shoulders-area { 
+                grid-area: shoulders; 
+                display: flex; 
+                flex-direction: row; 
+                align-items: center;
+                justify-content: center;
+                gap: 40px;
+                padding: 10px 0;
+            }
+            .shoulder-group {
+                display: flex;
+                flex-direction: column;
+                align-items: center;
+                gap: 10px;
+            }
+            .center-buttons-area { grid-area: center; }
+            /* Resize components for smaller screens */
+            :root { --button-size: 50px; --joystick-size: 130px; }
+            .shoulder-button { width: 100px; height: 40px; } .center-button { width: 45px; height: 45px; }
+        }
+    </style>
+</head>
+<body>
+    <div id="start-overlay">
+        <h1>Virtual Gamepad</h1>
+        <p>Tap to start</p>
+        <button id="start-button">Start</button>
+    </div>
+
+    <div class="controller-frame">
+        <div class="joystick-base left-joystick"><div id="left-stick" class="joystick-thumb"></div></div>
+        <div class="d-pad-container">
+            <button id="dpad-up" data-button="DPAD_UP" class="d-pad-btn"><svg viewBox="0 0 24 24"><path d="M12 4L4 20H20L12 4Z"/></svg></button>
+            <button id="dpad-down" data-button="DPAD_DOWN" class="d-pad-btn"><svg viewBox="0 0 24 24"><path d="M12 20L20 4H4L12 20Z"/></svg></button>
+            <button id="dpad-left" data-button="DPAD_LEFT" class="d-pad-btn"><svg viewBox="0 0 24 24"><path d="M4 12L20 4V20L4 12Z"/></svg></button>
+            <button id="dpad-right" data-button="DPAD_RIGHT" class="d-pad-btn"><svg viewBox="0 0 24 24"><path d="M20 12L4 20V4L20 12Z"/></svg></button>
+        </div>
+        <div class="shoulders-area">
+            <div class="shoulder-group">
+                <button id="lb" data-button="LSHLDR" class="button shoulder-button">LSHLDR</button>
+                <button id="l2" data-button="L2" class="button shoulder-button">L2</button>
+            </div>
+            <div class="shoulder-group">
+                <button id="rb" data-button="RSHLDR" class="button shoulder-button">RSHLDR</button>
+                <button id="r2" data-button="R2" class="button shoulder-button">R2</button>
+            </div>
+        </div>
+        <div class="center-buttons-area">
+            <button id="view" data-button="VIEW" class="button center-button"><svg viewBox="0 0 24 24"><path fill-rule="evenodd" clip-rule="evenodd" d="M5 5H13V11H5V5ZM15 13H21V19H15V13ZM13 19H5V13H13V19ZM15 5H21V11H15V5Z" fill="currentColor"/></svg></button>
+            <button id="menu" data-button="MENU" class="button center-button"><svg viewBox="0 0 24 24"><path d="M4 6H20M4 12H20M4 18H20" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+        </div>
+        <div class="abxy-group">
+            <button id="y" data-button="Y" class="button abxy-button">Y</button>
+            <button id="x" data-button="X" class="button abxy-button">X</button>
+            <button id="b" data-button="B" class="button abxy-button">B</button>
+            <button id="a" data-button="A" class="button abxy-button">A</button>
+        </div>
+        <div class="joystick-base right-joystick"><div id="right-stick" class="joystick-thumb"></div></div>
+    </div>
+    
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.7.5/socket.io.js"></script>
+    <script>
+        // The JavaScript logic for communication is completely unchanged
+        document.addEventListener('DOMContentLoaded', function() {
+            const startOverlay = document.getElementById('start-overlay');
+            const startButton = document.getElementById('start-button');
+            startButton.addEventListener('click', async () => {
+                try {
+                    if (document.documentElement.requestFullscreen) { await document.documentElement.requestFullscreen(); }
+                    if (screen.orientation && screen.orientation.lock) { await screen.orientation.lock('landscape').catch(()=>{}); }
+                } catch (err) { console.error('Could not set fullscreen or landscape mode:', err); } 
+                finally { startOverlay.style.display = 'none'; }
+            });
+            const socket = io();
+            const buttons = document.querySelectorAll('.button, .d-pad-btn');
+            const handleButtonPress = (button, isPressed) => {
+                if (!button) return; const buttonId = button.dataset.button; if (!buttonId) return;
+                button.classList.toggle('active', isPressed);
+                const action = isPressed ? 'press' : 'release';
+                socket.emit('gamepad_event', { button: buttonId, action: action });
+            };
+            buttons.forEach(button => {
+                button.addEventListener('pointerdown', (e) => { e.preventDefault(); button.setPointerCapture(e.pointerId); handleButtonPress(button, true); });
+                button.addEventListener('pointerup', (e) => { e.preventDefault(); button.releasePointerCapture(e.pointerId); handleButtonPress(button, false); });
+                button.addEventListener('pointerleave', (e) => { if (button.classList.contains('active')) { handleButtonPress(button, false); } });
+            });
+            const setupJoystick = (stickId) => {
+                const joystickThumb = document.getElementById(stickId);
+                const joystickBase = joystickThumb.parentElement;
+                let isDragging = false;
+                let activePointerId = null;
+                console.log(`Initializing joystick: ${stickId}`);
+                
+                // Prevent default touch behavior to avoid scrolling/zooming
+                joystickBase.addEventListener('touchstart', (e) => e.preventDefault(), { passive: false });
+                joystickBase.addEventListener('touchmove', (e) => e.preventDefault(), { passive: false });
+                const moveJoystick = (clientX, clientY) => {
+                // Get the base element's position and dimensions
+                const rect = joystickBase.getBoundingClientRect();
+                const maxDistance = (joystickBase.offsetWidth - joystickThumb.offsetWidth) / 2;
+                
+                // Calculate center point of the joystick base
+                const centerX = rect.left + rect.width / 2;
+                const centerY = rect.top + rect.height / 2;
+                
+                // Calculate distance from center to touch point
+                const x = clientX - centerX;
+                const y = clientY - centerY;
+                
+                // Calculate angle and distance
+                const distance = Math.sqrt(x * x + y * y);
+                const angle = Math.atan2(y, x);
+                
+                // Limit the distance to the max allowed
+                const boundedDistance = Math.min(distance, maxDistance);
+                
+                // Calculate final position
+                const finalX = Math.cos(angle) * boundedDistance;
+                const finalY = Math.sin(angle) * boundedDistance;
+                
+                // Update thumb position
+                joystickThumb.style.transform = `translate(calc(-50% + ${finalX}px), calc(-50% + ${finalY}px))`;
+                
+                // Normalize values to -1 to 1 range
+                const normalizedX = finalX / maxDistance;
+                const normalizedY = -finalY / maxDistance; // Invert Y axis for natural movement
+                
+                // Send the joystick position
+                socket.emit('joystick_move', { 
+                    stick: stickId, 
+                    x: parseFloat(normalizedX.toFixed(2)), 
+                    y: parseFloat(normalizedY.toFixed(2)) 
+                });
+                };
+                const resetJoystick = () => {
+                    isDragging = false;
+                    joystickThumb.style.transform = 'translate(-50%, -50%)';
+                    joystickThumb.classList.remove('active');
+                    socket.emit('joystick_move', { stick: stickId, x: 0, y: 0 });
+                };
+                const handlePointerStart = (e) => {
+                    e.preventDefault();
+                    if (isDragging) return;
+                    
+                    const touch = e.touches ? e.touches[0] : e;
+                    isDragging = true;
+                    activePointerId = touch.pointerId || 'touch';
+                    
+                    if (touch.pointerId) {
+                        joystickBase.setPointerCapture(touch.pointerId);
+                    }
+                    
+                    joystickThumb.classList.add('active');
+                    moveJoystick(touch.clientX, touch.clientY);
+                };
+                const handlePointerMove = (e) => {
+                    if (!isDragging) return;
+                    
+                    let touch;
+                    if (e.touches) {
+                        // For touch events, find our specific touch
+                        for (let i = 0; i < e.touches.length; i++) {
+                            if (e.touches[i].identifier === activePointerId) {
+                                touch = e.touches[i];
+                                break;
+                            }
+                        }
+                        if (!touch) return;
+                    } else {
+                        // For mouse/pointer events
+                        if (e.pointerId !== activePointerId) return;
+                        touch = e;
+                    }
+                    
+                    moveJoystick(touch.clientX, touch.clientY);
+                };
+                const handlePointerEnd = (e) => {
+                    if (!isDragging) return;
+                    
+                    // Check if this is the active pointer
+                    if (e.touches) {
+                        // For touch events, check if our active touch is still present
+                        let touchStillActive = false;
+                        for (let i = 0; i < e.touches.length; i++) {
+                            if (e.touches[i].identifier === activePointerId) {
+                                touchStillActive = true;
+                                break;
+                            }
+                        }
+                        if (touchStillActive) return;
+                    } else if (e.pointerId !== activePointerId) {
+                        return; // Not our pointer
+                    }
+                    
+                    if (e.pointerId) {
+                        joystickBase.releasePointerCapture(e.pointerId);
+                    }
+                    
+                    resetJoystick();
+                };
+                
+                // Add event listeners for both pointer and touch events
+                joystickBase.addEventListener('pointerdown', handlePointerStart);
+                joystickBase.addEventListener('touchstart', handlePointerStart);
+                
+                // Use capture phase for move/end events to ensure we catch them even if they bubble up from child elements
+                document.addEventListener('pointermove', handlePointerMove, { passive: false });
+                document.addEventListener('touchmove', handlePointerMove, { passive: false });
+                
+                document.addEventListener('pointerup', handlePointerEnd);
+                document.addEventListener('touchend', handlePointerEnd);
+                document.addEventListener('pointercancel', handlePointerEnd);
+                document.addEventListener('touchcancel', handlePointerEnd);
+            };
+            setupJoystick('left-stick');
+            setupJoystick('right-stick');
+        });
+    </script>
+</body>
+</html>

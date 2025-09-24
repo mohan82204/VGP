@@ -1,0 +1,127 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Server Dashboard</title>
+    <style>
+        body { font-family: sans-serif; background-color: #1e1e1e; color: #d4d4d4; margin: 0; padding: 20px; }
+        .grid-container { display: grid; grid-template-columns: 300px 1fr; gap: 20px; height: 95vh; }
+        .sidebar { display: flex; flex-direction: column; gap: 20px; }
+        .card { background-color: #252526; border-radius: 8px; padding: 20px; display: flex; flex-direction: column; overflow: hidden;}
+        h2 { margin-top: 0; color: #4ec9b0; border-bottom: 1px solid #444; padding-bottom: 10px; }
+        .server-info { text-align: center; }
+        #qr-code { max-width: 80%; margin: 10px auto; border-radius: 5px; background-color: white; }
+        #server-url { font-family: monospace; background-color: #333; padding: 5px 8px; border-radius: 4px; word-break: break-all; }
+        ul { list-style: none; padding: 0; margin: 0; overflow-y: auto; }
+        #player-list li { background-color: #333; padding: 12px; border-radius: 6px; margin-bottom: 8px; cursor: pointer; transition: background-color 0.2s; }
+        #player-list li:hover { background-color: #4ec9b0; color: #1e1e1e; }
+        #log-container { flex-grow: 1; background-color: #1a1a1a; font-family: monospace; overflow-y: scroll; padding: 10px; border-radius: 4px; white-space: pre-wrap; margin-top: 10px; }
+        .modal { display: none; position: fixed; z-index: 100; left: 0; top: 0; width: 100%; height: 100%; overflow: auto; background-color: rgba(0,0,0,0.6); animation: fadeIn 0.3s; }
+        @keyframes fadeIn { from {opacity: 0;} to {opacity: 1;} }
+        .modal-content { background-color: #252526; margin: 10% auto; padding: 20px; border: 1px solid #444; border-radius: 8px; width: 80%; max-width: 600px; }
+        .close-btn { color: #aaa; float: right; font-size: 28px; font-weight: bold; cursor: pointer; }
+        #keybind-list li { display: flex; justify-content: space-between; align-items: center; padding: 8px 0; border-bottom: 1px solid #333; }
+        .keybind-key { background-color: #4ec9b0; color: #1e1e1e; padding: 3px 8px; border-radius: 4px; font-weight: bold; font-family: monospace; min-width: 80px; text-align: center;}
+        .keybind-change-btn { background-color: #3e3e42; border: 1px solid #555; color: #ccc; padding: 4px 10px; border-radius: 4px; cursor: pointer; }
+        .keybind-change-btn.listening { background-color: #c9934e; color: white; }
+    </style>
+</head>
+<body>
+    <div class="grid-container">
+        <div class="sidebar">
+            <div class="card server-info"><h2 style="margin-bottom: 10px;">Server Info</h2><img id="qr-code"> <p id="server-url"></p></div>
+            <div class="card" style="flex-grow: 1;"><h2>Connected Players</h2><ul id="player-list"></ul></div>
+        </div>
+        <div class="card"><h2>Live Event Log</h2><div id="log-container"></div></div>
+    </div>
+
+    <div id="keybind-modal" class="modal">
+        <div class="modal-content">
+            <span class="close-btn">&times;</span>
+            <h2 id="modal-title">Key Bindings</h2>
+            <ul id="keybind-list"></ul>
+        </div>
+    </div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.7.5/socket.io.js"></script>
+    <script>
+        document.addEventListener('DOMContentLoaded', () => {
+            const socket = io();
+            let player_maps = {};
+
+            const qrCodeImg = document.getElementById('qr-code');
+            const serverUrlP = document.getElementById('server-url');
+            const playerList = document.getElementById('player-list');
+            const modal = document.getElementById('keybind-modal');
+            const modalTitle = document.getElementById('modal-title');
+            const keybindList = document.getElementById('keybind-list');
+            const closeBtn = document.querySelector('.close-btn');
+            
+            socket.on('initial_data', (data) => {
+                qrCodeImg.src = data.qr_code;
+                serverUrlP.textContent = data.server_url;
+            });
+            
+            socket.on('dashboard_update', (data) => {
+                playerList.innerHTML = '';
+                data.players.forEach(pid => {
+                    const li = document.createElement('li');
+                    li.textContent = `Player ${pid}`;
+                    li.dataset.playerId = pid;
+                    playerList.appendChild(li);
+                });
+            });
+
+            const renderKeybindModal = (playerId) => {
+                const mappings = player_maps[playerId];
+                modalTitle.textContent = `Key Bindings for Player ${playerId}`;
+                keybindList.innerHTML = '';
+                if (!mappings) return;
+                for (const button in mappings) {
+                    const key = mappings[button] === ' ' ? 'Space' : mappings[button];
+                    keybindList.innerHTML += `<li><span>${button}</span><div><span class="keybind-key">${key}</span><button class="keybind-change-btn" data-player-id="${playerId}" data-button="${button}">Change</button></div></li>`;
+                }
+                modal.style.display = 'block';
+            };
+
+            socket.on('connect', () => socket.emit('get_mappings'));
+            
+            playerList.addEventListener('click', (e) => {
+                if(e.target.tagName === 'LI') {
+                    renderKeybindModal(e.target.dataset.playerId);
+                }
+            });
+            
+            closeBtn.onclick = () => modal.style.display = 'none';
+            window.onclick = (e) => { if (e.target == modal) modal.style.display = 'none'; }
+
+            keybindList.addEventListener('click', (e) => {
+                const target = e.target;
+                if (target.classList.contains('keybind-change-btn') && !target.disabled) {
+                    const playerId = target.dataset.playerId;
+                    const button = target.dataset.button;
+                    const keyDisplay = target.previousElementSibling;
+                    
+                    document.querySelectorAll('.keybind-change-btn').forEach(btn => btn.disabled = true);
+                    target.classList.add('listening');
+                    keyDisplay.textContent = 'Press a key...';
+
+                    window.addEventListener('keydown', (event) => {
+                        event.preventDefault();
+                        socket.emit('update_mapping', { player_id: playerId, button, new_key: event.key });
+                    }, { once: true, capture: true });
+                }
+            });
+            
+            socket.on('mappings_updated', (data) => {
+                player_maps = data;
+                document.querySelectorAll('.keybind-change-btn').forEach(btn => btn.disabled = false);
+                const openPlayerId = modal.querySelector('[data-player-id]')?.dataset.playerId;
+                if (modal.style.display === 'block' && openPlayerId) {
+                    renderKeybindModal(openPlayerId);
+                }
+            });
+        });
+    </script>
+</body>
+</html>
